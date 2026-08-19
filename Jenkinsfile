@@ -46,13 +46,30 @@ pipeline {
             }
         }
 
-        stage('Stop Old Container') {
+        stage('Stop Old Deployment') {
             steps {
-                echo 'Stopping old PaySphere container...'
+                echo 'Stopping old PaySphere deployments...'
 
                 sh '''
-                    sudo docker stop ${CONTAINER_NAME} || true
-                    sudo docker rm ${CONTAINER_NAME} || true
+                    echo "Stopping old Docker container..."
+
+                    sudo docker stop ${CONTAINER_NAME} 2>/dev/null || true
+                    sudo docker rm ${CONTAINER_NAME} 2>/dev/null || true
+
+                    echo "Checking port ${APP_PORT}..."
+
+                    PID=$(sudo lsof -t -i:${APP_PORT} 2>/dev/null || true)
+
+                    if [ -n "$PID" ]; then
+                        echo "Found process using port ${APP_PORT}: $PID"
+                        sudo kill $PID || true
+                        sleep 3
+                    else
+                        echo "Port ${APP_PORT} is free."
+                    fi
+
+                    echo "Port check:"
+                    sudo ss -lntp | grep ${APP_PORT} || true
                 '''
             }
         }
