@@ -1,10 +1,19 @@
 pipeline {
     agent any
 
+    environment {
+        IMAGE_NAME = 'paysphere'
+        IMAGE_TAG = '1.0'
+        CONTAINER_NAME = 'paysphere'
+        APP_PORT = '8090'
+    }
+
     stages {
 
         stage('Checkout') {
             steps {
+                echo 'Checking out PaySphere source code...'
+
                 git branch: 'main',
                     url: 'https://github.com/mohammedkaif77/PaySphere.git'
             }
@@ -12,57 +21,80 @@ pipeline {
 
         stage('Build') {
             steps {
+                echo 'Building PaySphere application...'
+
                 sh 'mvn clean package -DskipTests'
             }
         }
 
         stage('Test') {
             steps {
+                echo 'Running tests...'
+
                 sh 'mvn test'
             }
         }
 
-        stage('Deploy') {
+        stage('Docker Build') {
             steps {
+                echo 'Building Docker image...'
+
                 sh '''
-                    echo "======================================"
-                    echo "Stopping existing PaySphere process..."
-                    echo "======================================"
+                    sudo docker build \
+                        -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                '''
+            }
+        }
 
-                    pkill -f 'paysphere-0.0.1-SNAPSHOT.jar' || true
+        stage('Stop Old Container') {
+            steps {
+                echo 'Stopping old PaySphere container...'
 
-                    sleep 3
+                sh '''
+                    sudo docker stop ${CONTAINER_NAME} || true
+                    sudo docker rm ${CONTAINER_NAME} || true
+                '''
+            }
+        }
 
-                    echo "======================================"
-                    echo "Starting PaySphere..."
-                    echo "======================================"
+        stage('Deploy Docker Container') {
+            steps {
+                echo 'Starting PaySphere Docker container...'
 
-                    JENKINS_NODE_COOKIE=dontKillMe \
-                    nohup java -jar target/paysphere-0.0.1-SNAPSHOT.jar \
-                        > /tmp/paysphere.log 2>&1 < /dev/null &
+                sh '''
+                    sudo docker run -d \
+                        --name ${CONTAINER_NAME} \
+                        -p ${APP_PORT}:${APP_PORT} \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+                '''
+            }
+        }
 
-                    echo "PaySphere started in background."
+        stage('Verify Deployment') {
+            steps {
+                echo 'Waiting for PaySphere to start...'
 
-                    echo "======================================"
-                    echo "Waiting for PaySphere..."
-                    echo "======================================"
-
+                sh '''
                     i=1
 
                     while [ $i -le 30 ]
                     do
-                        if curl -sf http://localhost:8090/api/payments > /tmp/paysphere-response.txt
+                        if curl -sf http://localhost:${APP_PORT}/api/payments > /tmp/paysphere-response.txt
                         then
                             echo "======================================"
-                            echo "PaySphere is running!"
+                            echo "PaySphere is running successfully!"
                             echo "======================================"
 
                             echo "API Response:"
                             cat /tmp/paysphere-response.txt
 
                             echo ""
-                            echo "Port 8090:"
-                            ss -lntp | grep 8090 || true
+                            echo "Docker Container:"
+                            sudo docker ps | grep ${CONTAINER_NAME}
+
+                            echo ""
+                            echo "Port ${APP_PORT}:"
+                            sudo ss -lntp | grep ${APP_PORT} || true
 
                             exit 0
                         fi
@@ -78,15 +110,12 @@ pipeline {
                     echo "PaySphere failed to start."
                     echo "======================================"
 
-                    echo "Application logs:"
-                    echo "--------------------------------------"
+                    echo "Docker container status:"
+                    sudo docker ps -a | grep ${CONTAINER_NAME} || true
 
-                    cat /tmp/paysphere.log
-
-                    echo "--------------------------------------"
-
-                    echo "Port 8090:"
-                    ss -lntp | grep 8090 || true
+                    echo ""
+                    echo "Docker logs:"
+                    sudo docker logs ${CONTAINER_NAME} || true
 
                     exit 1
                 '''
@@ -95,13 +124,19 @@ pipeline {
     }
 
     post {
+
         success {
-            echo 'PaySphere deployed successfully!'
-            echo 'PaySphere is running on port 8090.'
+            echo '======================================'
+            echo 'PaySphere deployment successful!'
+            echo 'Docker container is running on port 8090.'
+            echo '======================================'
         }
 
         failure {
+            echo '======================================'
             echo 'PaySphere deployment failed.'
+            echo 'Check the Jenkins console output and Docker logs.'
+            echo '======================================'
         }
     }
 }
