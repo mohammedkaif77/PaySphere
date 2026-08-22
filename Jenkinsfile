@@ -33,6 +33,19 @@ pipeline {
             }
         }
 
+        stage('Ansible Connectivity') {
+            steps {
+                echo 'Testing Ansible connectivity to PaySphere EC2...'
+
+                sh '''
+                    ansible \
+                        -i ${ANSIBLE_INVENTORY} \
+                        paysphere-ec2 \
+                        -m ping
+                '''
+            }
+        }
+
         stage('Deploy with Ansible') {
             steps {
                 echo 'Deploying PaySphere to EC2 using Ansible + AWS SSM...'
@@ -65,19 +78,26 @@ pipeline {
 
         success {
             echo '''
-            ======================================
-            PaySphere deployment successful!
-            ======================================
-            '''
+======================================
+PaySphere CI/CD SUCCESS
+======================================
+Build       : SUCCESS
+Tests       : SUCCESS
+Ansible     : SUCCESS
+Deployment  : SUCCESS
+API         : http://localhost:8090/api/payments
+======================================
+'''
         }
 
         failure {
             echo '''
-            ======================================
-            PaySphere deployment failed!
-            Check Jenkins console output.
-            ======================================
-            '''
+======================================
+PaySphere CI/CD FAILED
+======================================
+Check Jenkins console output for details.
+======================================
+'''
         }
     }
 }
